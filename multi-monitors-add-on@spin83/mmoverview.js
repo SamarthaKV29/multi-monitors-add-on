@@ -356,6 +356,9 @@ var MultiMonitorsThumbnailsSlider = (() => {
 })();
 */
 
+// Modernize: No Lang, use ES6 class syntax, arrow functions, and GObject.registerClass
+// All class definitions and copyClass usage are compatible with GJS 1.70+/GNOME 42
+
 var MultiMonitorsControlsManager = GObject.registerClass(
 class MultiMonitorsControlsManager extends St.Widget {
     _init(index) {
@@ -378,7 +381,18 @@ class MultiMonitorsControlsManager extends St.Widget {
             clip_to_allocation: true,
         });
 
-        this._workspaceAdjustment = Main.overview._overview._controls._workspaceAdjustment;
+        // In GNOME 42+, we need to access the adjustment from workspaceDisplay if available
+        let workspaceAdjustment;
+        if (Main.overview._overview._controls._workspaceDisplay && 
+            Main.overview._overview._controls._workspaceDisplay._stateAdjustment) {
+            workspaceAdjustment = Main.overview._overview._controls._workspaceDisplay._stateAdjustment;
+        } else if (Main.overview._overview._controls._stateAdjustment) {
+            workspaceAdjustment = Main.overview._overview._controls._stateAdjustment;
+        } else {
+            // Fallback to the old property
+            workspaceAdjustment = Main.overview._overview._controls._workspaceAdjustment;
+        }
+        this._workspaceAdjustment = workspaceAdjustment;
 
         this._thumbnailsBox =
             new MultiMonitorsThumbnailsBox(this._workspaceAdjustment, this._monitorIndex);

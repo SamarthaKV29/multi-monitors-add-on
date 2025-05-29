@@ -15,8 +15,6 @@ You should have received a copy of the GNU General Public License
 along with this program; if not, visit https://www.gnu.org/licenses/.
 */
 
-const Lang = imports.lang;
-
 const GObject = imports.gi.GObject;
 const Gdk = imports.gi.Gdk;
 const Gtk = imports.gi.Gtk;
@@ -99,15 +97,15 @@ class MultiMonitorsPrefsWidget extends Gtk.Grid {
         let toolbar = new Gtk.Box({orientation: Gtk.Orientation.HORIZONTAL});
         toolbar.get_style_context().add_class("inline-toolbar");
 
-        this._settings.connect('changed::'+TRANSFER_INDICATORS_ID, Lang.bind(this, this._updateIndicators));
+        this._settings.connect('changed::'+TRANSFER_INDICATORS_ID, this._updateIndicators.bind(this));
         this._updateIndicators();
 
         let addTButton = new Gtk.Button({ icon_name: "list-add" });
-        addTButton.connect('clicked', Lang.bind(this, this._addIndicator));
+        addTButton.connect('clicked', this._addIndicator.bind(this));
         toolbar.append(addTButton);
 
         let removeTButton = new Gtk.Button({ icon_name: "list-remove" });
-        removeTButton.connect('clicked', Lang.bind(this, this._removeIndicator));
+        removeTButton.connect('clicked', this._removeIndicator.bind(this));
         toolbar.append(removeTButton);
         
         this.add(toolbar);

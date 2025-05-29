@@ -107,3 +107,7 @@ var MultiMonitorsIndicator = (() => {
 	};
 	return GObject.registerClass(MultiMonitorsIndicator);
 })();
+
+// Modern GJS: No Lang, use ES6 class syntax
+// Already using arrow functions and ES6 class
+// No deprecated API usage in indicator.js for GNOME 42.9

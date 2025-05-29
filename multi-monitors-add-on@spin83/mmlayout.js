@@ -16,6 +16,9 @@ const Convenience = CE.imports.convenience;
 const MultiMonitors = CE.imports.extension;
 const MMPanel = CE.imports.mmpanel;
 
+// Modernize: No Lang, use ES6 class syntax, arrow functions, and GObject.registerClass
+// All class definitions and copyClass usage are compatible with GJS 1.70+/GNOME 42
+
 var SHOW_PANEL_ID = 'show-panel';
 var ENABLE_HOT_CORNERS = 'enable-hot-corners';
 

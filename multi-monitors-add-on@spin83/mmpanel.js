@@ -78,22 +78,46 @@ var StatusIndicatorsController = class StatusIndicatorsController  {
     	this._transferBack(transfer_back);
     	
 		for(let iname in transfers) {
-			if(transfers.hasOwnProperty(iname) && Main.panel.statusArea[iname]) {
-				let monitor = transfers[iname];
-				
-				let indicator = Main.panel.statusArea[iname];
-				let panel = this._findPanel(monitor);
-				boxs.forEach((box) => {
-					if(Main.panel[box].contains(indicator.container) && panel) {
-						global.log('a '+box+ " > " + iname + " : "+ monitor);
-						this._transfered_indicators.push({iname:iname, box:box, monitor:monitor});
-						Main.panel[box].remove_child(indicator.container);
-						if (show_app_menu && box === '_leftBox')
-							panel[box].insert_child_at_index(indicator.container, 1);
-						else
-							panel[box].insert_child_at_index(indicator.container, 0);
+			if(transfers.hasOwnProperty(iname)) {
+				try {
+					if (!Main.panel.statusArea[iname]) {
+						global.log(`Warning: Indicator ${iname} not found in Main.panel.statusArea`);
+						continue;
 					}
-				});
+					
+					let monitor = transfers[iname];
+					let indicator = Main.panel.statusArea[iname];
+					let panel = this._findPanel(monitor);
+					
+					if (!panel) {
+						global.log(`Warning: Panel not found for monitor ${monitor}`);
+						continue;
+					}
+					
+					boxs.forEach((box) => {
+						if(Main.panel[box].contains(indicator.container)) {
+							global.log('a '+box+ " > " + iname + " : "+ monitor);
+							this._transfered_indicators.push({iname:iname, box:box, monitor:monitor});
+							Main.panel[box].remove_child(indicator.container);
+							try {
+								if (show_app_menu && box === '_leftBox')
+									panel[box].insert_child_at_index(indicator.container, 1);
+								else
+									panel[box].insert_child_at_index(indicator.container, 0);
+							} catch (insertError) {
+								global.log(`Error inserting indicator ${iname} into panel: ${insertError}`);
+								// Try to put it back in the original panel
+								try {
+									Main.panel[box].insert_child_at_index(indicator.container, 0);
+								} catch (e) {
+									global.log(`Failed to restore indicator ${iname} to original panel: ${e}`);
+								}
+							}
+						}
+					});
+				} catch (e) {
+					global.log(`Error processing indicator ${iname}: ${e}`);
+				}
 			}
 		}
 	}
@@ -164,6 +188,8 @@ var StatusIndicatorsController = class StatusIndicatorsController  {
 	}
 };
 
+// Modernize: No Lang, use ES6 class syntax, arrow functions, and GObject.registerClass
+// All class definitions and copyClass usage are compatible with GJS 1.70+/GNOME 42
 var MultiMonitorsAppMenuButton  = (() => {
 	let MultiMonitorsAppMenuButton = class MultiMonitorsAppMenuButton extends PanelMenu.Button {
 	    _init(panel) {
