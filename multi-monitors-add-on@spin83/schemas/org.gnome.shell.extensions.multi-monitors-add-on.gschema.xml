@@ -31,6 +31,12 @@
       <description>Change visibility of DateTime-Button on additional monitors.</description>
     </key>
 
+    <key name="show-top-panel" type="b">
+      <default>false</default>
+      <summary>Show top panel on all monitors.</summary>
+      <description>Display the top panel across all monitors instead of just the primary.</description>
+    </key>
+
     <key name="thumbnails-slider-position" type="s">
       <choices>
         <choice value='none'/>

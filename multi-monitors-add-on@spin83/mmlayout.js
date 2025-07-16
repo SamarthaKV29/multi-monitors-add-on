@@ -21,6 +21,7 @@ const MMPanel = CE.imports.mmpanel;
 
 var SHOW_PANEL_ID = 'show-panel';
 var ENABLE_HOT_CORNERS = 'enable-hot-corners';
+var SHOW_TOP_PANEL_ID = 'show-top-panel';
 
 const MultiMonitorsPanelBox = class MultiMonitorsPanelBox {
     constructor(monitor) {
@@ -166,14 +167,19 @@ var MultiMonitorsLayoutManager = class MultiMonitorsLayoutManager {
 		
 		let j = 0;
 		let tIndicators = false;
+		let showTopPanel = this._settings.get_boolean(SHOW_TOP_PANEL_ID);
+		
 		for (let i = 0; i < Main.layoutManager.monitors.length; i++) {
-			if (i!=Main.layoutManager.primaryIndex) {
+			// Skip primary monitor, unless "show top panel on all monitors" is enabled
+			if (i != Main.layoutManager.primaryIndex || showTopPanel) {
 				let monitor = Main.layoutManager.monitors[i];
 				let monitorId = "i"+i+"x"+monitor.x+"y"+monitor.y+"w"+monitor.width+"h"+monitor.height;
 				if (monitorChange>0 && j==this._monitorIds.length) {
 					this._monitorIds.push(monitorId);
-					this._pushPanel(i, monitor);
-					global.log("new: "+monitorId);
+					// When showing panel on all monitors, make it match the primary panel more closely
+					let isPrimary = (showTopPanel && i === Main.layoutManager.primaryIndex);
+					this._pushPanel(i, monitor, isPrimary);
+					global.log("new: "+monitorId + (isPrimary ? " (primary style)" : ""));
 					tIndicators = true;
 				}
 				else if (this._monitorIds[j]>monitorId || this._monitorIds[j]<monitorId) {
@@ -186,14 +192,15 @@ var MultiMonitorsLayoutManager = class MultiMonitorsLayoutManager {
 			}
 		}
 		this._showAppMenu();
-		if (tIndicators && this.statusIndicatorsController) {
+		if (this.statusIndicatorsController) {
+			// Always refresh indicators when monitors change
 			this.statusIndicatorsController.transferIndicators();
 		}
 	}
 
-	_pushPanel(i, monitor) {
+	_pushPanel(i, monitor, isPrimary = false) {
 		let mmPanelBox = new MultiMonitorsPanelBox(monitor);
-		let panel = new MMPanel.MultiMonitorsPanel(i, mmPanelBox);
+		let panel = new MMPanel.MultiMonitorsPanel(i, mmPanelBox, isPrimary);
 		
 		Main.mmPanel.push(panel);
 		this.mmPanelBox.push(mmPanelBox);

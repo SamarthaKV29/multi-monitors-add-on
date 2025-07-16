@@ -33,6 +33,7 @@ const MMCalendar = CE.imports.mmcalendar;
 const SHOW_ACTIVITIES_ID = 'show-activities';
 var SHOW_APP_MENU_ID = 'show-app-menu';
 const SHOW_DATE_TIME_ID = 'show-date-time';
+const SHOW_TOP_PANEL_ID = 'show-top-panel';
 const AVAILABLE_INDICATORS_ID = 'available-indicators';
 const TRANSFER_INDICATORS_ID = 'transfer-indicators';
 
@@ -58,134 +59,191 @@ var StatusIndicatorsController = class StatusIndicatorsController  {
         this._transferBack(this._transfered_indicators);
     }
 
-	transferBack(panel) {
-		let transfer_back = this._transfered_indicators.filter((element) => {
-			return element.monitor==panel.monitorIndex;
-		});
-		
-		this._transferBack(transfer_back, panel);
-	}
+    transferBack(panel) {
+        let transfer_back = this._transfered_indicators.filter((element) => {
+            return element.monitor==panel.monitorIndex;
+        });
+        
+        this._transferBack(transfer_back, panel);
+    }
 
-	transferIndicators() {
-		let boxs = ['_leftBox', '_centerBox', '_rightBox'];
-    	let transfers = this._settings.get_value(TRANSFER_INDICATORS_ID).deep_unpack();
-    	let show_app_menu = this._settings.get_value(SHOW_APP_MENU_ID);
-    	
-    	let transfer_back = this._transfered_indicators.filter((element) => {
-    		return !transfers.hasOwnProperty(element.iname);
-		});
-    	
-    	this._transferBack(transfer_back);
-    	
-		for(let iname in transfers) {
-			if(transfers.hasOwnProperty(iname)) {
-				try {
-					if (!Main.panel.statusArea[iname]) {
-						global.log(`Warning: Indicator ${iname} not found in Main.panel.statusArea`);
-						continue;
-					}
-					
-					let monitor = transfers[iname];
-					let indicator = Main.panel.statusArea[iname];
-					let panel = this._findPanel(monitor);
-					
-					if (!panel) {
-						global.log(`Warning: Panel not found for monitor ${monitor}`);
-						continue;
-					}
-					
-					boxs.forEach((box) => {
-						if(Main.panel[box].contains(indicator.container)) {
-							global.log('a '+box+ " > " + iname + " : "+ monitor);
-							this._transfered_indicators.push({iname:iname, box:box, monitor:monitor});
-							Main.panel[box].remove_child(indicator.container);
-							try {
-								if (show_app_menu && box === '_leftBox')
-									panel[box].insert_child_at_index(indicator.container, 1);
-								else
-									panel[box].insert_child_at_index(indicator.container, 0);
-							} catch (insertError) {
-								global.log(`Error inserting indicator ${iname} into panel: ${insertError}`);
-								// Try to put it back in the original panel
-								try {
-									Main.panel[box].insert_child_at_index(indicator.container, 0);
-								} catch (e) {
-									global.log(`Failed to restore indicator ${iname} to original panel: ${e}`);
-								}
-							}
-						}
-					});
-				} catch (e) {
-					global.log(`Error processing indicator ${iname}: ${e}`);
-				}
-			}
-		}
-	}
+    transferIndicators() {
+        let boxs = ['_leftBox', '_centerBox', '_rightBox'];
+        let transfers = this._settings.get_value(TRANSFER_INDICATORS_ID).deep_unpack();
+        
+        // Find indicators that need to be moved back to main panel
+        let transfer_back = this._transfered_indicators.filter((element) => {
+            return !transfers.hasOwnProperty(element.iname);
+        });
+        
+        this._transferBack(transfer_back);
+        
+        // Transfer indicators to secondary panels
+        for(let iname in transfers) {
+            if(transfers.hasOwnProperty(iname)) {
+                try {
+                    if (!Main.panel.statusArea[iname]) {
+                        global.log(`Warning: Indicator ${iname} not found in Main.panel.statusArea`);
+                        continue;
+                    }
+                    
+                    let monitor = transfers[iname];
+                    let indicator = Main.panel.statusArea[iname];
+                    let panel = this._findPanel(monitor);
+                    
+                    if (!panel) {
+                        global.log(`Warning: Panel not found for monitor ${monitor}`);
+                        continue;
+                    }
+                    
+                    // Check if indicator is already transferred
+                    let alreadyTransferred = this._transfered_indicators.some(element => 
+                        element.iname === iname && element.monitor === monitor);
+                        
+                    if (alreadyTransferred) {
+                        continue; // Skip if already moved to this monitor
+                    }
+                    
+                    // Find which box contains the indicator in the main panel
+                    boxs.forEach((box) => {
+                        if (Main.panel[box] && Main.panel[box].contains(indicator.container)) {
+                            global.log(`Transferring ${iname} from ${box} to monitor ${monitor}`);
+                            
+                            // Add to tracking array before moving
+                            this._transfered_indicators.push({
+                                iname: iname,
+                                box: box,
+                                monitor: monitor
+                            });
+                            
+                            // Remove menu from main panel manager
+                            if (indicator.menu && Main.panel.menuManager) {
+                                Main.panel.menuManager.removeMenu(indicator.menu);
+                            }
+                            
+                            // Remove from main panel
+                            Main.panel[box].remove_child(indicator.container);
+                            
+                            // Add to target panel
+                            panel[box].add_child(indicator.container);
+                            
+                            // Add menu to target panel's menu manager
+                            if (indicator.menu && panel.menuManager) {
+                                panel.menuManager.addMenu(indicator.menu);
+                            }
+                            
+                            // Ensure indicator is visible and interactive
+                            if (indicator.container) {
+                                indicator.container.opacity = 255;
+                                indicator.container.show();
+                            }
+                            
+                            // Also set any actor property to visible
+                            if (indicator.actor) {
+                                indicator.actor.opacity = 255;
+                                indicator.actor.show();
+                            }
+                        }
+                    });
+                } catch (e) {
+                    global.log(`Error processing indicator ${iname}: ${e}`);
+                }
+            }
+        }
+    }
 
-	_findPanel(monitor) {
-		for (let i = 0; i < Main.mmPanel.length; i++) {
-			if (Main.mmPanel[i].monitorIndex == monitor) {
-				return Main.mmPanel[i];
-			}
-		}
-		return null;
-	}
+    _findPanel(monitor) {
+        for (let i = 0; i < Main.mmPanel.length; i++) {
+            if (Main.mmPanel[i].monitorIndex == monitor) {
+                return Main.mmPanel[i];
+            }
+        }
+        return null;
+    }
 
-	_transferBack(transfer_back, panel) {
-    	transfer_back.forEach((element) => {
-    		this._transfered_indicators.splice(this._transfered_indicators.indexOf(element));
-			if(Main.panel.statusArea[element.iname]) {
-				let indicator = Main.panel.statusArea[element.iname];
-				if(!panel) {
-					panel = this._findPanel(element.monitor);
-				}
-				if(panel[element.box].contains(indicator.container)) {
-		    		global.log("r "+element.box+ " > " + element.iname + " : "+ element.monitor);
-		    		panel[element.box].remove_child(indicator.container);
-		    		if (element.box === '_leftBox')
-		    			Main.panel[element.box].insert_child_at_index(indicator.container, 1);
-		    		else
-		    			Main.panel[element.box].insert_child_at_index(indicator.container, 0);
-				}
-			}
-		});
-	}
+    _transferBack(transfer_back, panel) {
+        transfer_back.forEach((element) => {
+            let idx = this._transfered_indicators.indexOf(element);
+            if (idx >= 0) {
+                this._transfered_indicators.splice(idx, 1);
+            }
+            
+            if(Main.panel.statusArea[element.iname]) {
+                let indicator = Main.panel.statusArea[element.iname];
+                if(!panel) {
+                    panel = this._findPanel(element.monitor);
+                }
+                
+                if(panel && panel[element.box] && panel[element.box].contains(indicator.container)) {
+                    global.log(`Returning ${element.iname} from monitor ${element.monitor} to main panel`);
+                    
+                    // Remove the menu from the panel's menu manager before removing the indicator
+                    if (indicator.menu && panel.menuManager) {
+                        panel.menuManager.removeMenu(indicator.menu);
+                    }
+                    
+                    panel[element.box].remove_child(indicator.container);
+                    
+                    // Restore indicator to main panel
+                    if (element.box === '_leftBox')
+                        Main.panel[element.box].insert_child_at_index(indicator.container, 1);
+                    else
+                        Main.panel[element.box].insert_child_at_index(indicator.container, 0);
+                        
+                    // Add menu back to main panel's menu manager
+                    if (indicator.menu && Main.panel.menuManager) {
+                        Main.panel.menuManager.addMenu(indicator.menu);
+                    }
+                    
+                    // Make sure the indicator is fully visible
+                    if (indicator.container) {
+                        indicator.container.opacity = 255;
+                        indicator.container.show();
+                    }
+                    
+                    if (indicator.actor) {
+                        indicator.actor.opacity = 255;
+                        indicator.actor.show();
+                    }
+                }
+            }
+        });
+    }
 
-	_extensionStateChanged() {
-		this._findAvailableIndicators();
+    _extensionStateChanged() {
+        this._findAvailableIndicators();
         this.transferIndicators();
-	}
+    }
 
-	_updateSessionIndicators() {
+    _updateSessionIndicators() {
         let session_indicators = [];
         session_indicators.push('MultiMonitorsAddOn');
         let sessionPanel = Main.sessionMode.panel;
         for (let sessionBox in sessionPanel){
-        	sessionPanel[sessionBox].forEach((sesionIndicator) => {
-        		session_indicators.push(sesionIndicator);
+            sessionPanel[sessionBox].forEach((sesionIndicator) => {
+                session_indicators.push(sesionIndicator);
             });
         }
         this._session_indicators = session_indicators;
-		this._available_indicators = [];
-		
+        this._available_indicators = [];
+        
         this._findAvailableIndicators();
         this.transferIndicators();
-	}
+    }
 
     _findAvailableIndicators() {
-		let available_indicators = [];
-		let statusArea = Main.panel.statusArea;
-		for(let indicator in statusArea) {
-			if(statusArea.hasOwnProperty(indicator) && this._session_indicators.indexOf(indicator)<0){
-				available_indicators.push(indicator);
-			}
-		}
-		if(available_indicators.length!=this._available_indicators.length) {
-			this._available_indicators = available_indicators;
-//			global.log(this._available_indicators);
-			this._settings.set_strv(AVAILABLE_INDICATORS_ID, this._available_indicators);
-		}
-	}
+        let available_indicators = [];
+        let statusArea = Main.panel.statusArea;
+        for(let indicator in statusArea) {
+            if(statusArea.hasOwnProperty(indicator) && this._session_indicators.indexOf(indicator)<0){
+                available_indicators.push(indicator);
+            }
+        }
+        if(available_indicators.length!=this._available_indicators.length) {
+            this._available_indicators = available_indicators;
+            this._settings.set_strv(AVAILABLE_INDICATORS_ID, this._available_indicators);
+        }
+    }
 };
 
 // Modernize: No Lang, use ES6 class syntax, arrow functions, and GObject.registerClass
@@ -381,11 +439,12 @@ const MULTI_MONITOR_PANEL_ITEM_IMPLEMENTATIONS = {
 
 var MultiMonitorsPanel = (() => {
     let MultiMonitorsPanel = class MultiMonitorsPanel extends St.Widget {
-    _init(monitorIndex, mmPanelBox) {
+    _init(monitorIndex, mmPanelBox, isPrimary = false) {
         super._init({ name: 'panel',
                       reactive: true });
 
         this.monitorIndex = monitorIndex;
+        this.isPrimary = isPrimary;
 
         this.set_offscreen_redirect(Clutter.OffscreenRedirect.ALWAYS);
 
@@ -427,9 +486,12 @@ var MultiMonitorsPanel = (() => {
                                                             this._showAppMenu.bind(this));
         this._showAppMenu();
 
-        this._showDateTimeId = this._settings.connect('changed::'+SHOW_DATE_TIME_ID,
+    		this._showDateTimeId = this._settings.connect('changed::'+SHOW_DATE_TIME_ID,
                                                             this._showDateTime.bind(this));
         this._showDateTime();
+        
+        this._showTopPanelId = this._settings.connect('changed::'+SHOW_TOP_PANEL_ID, 
+                                                           () => Main.layoutManager.emit('monitors-changed'));
 
         this.connect('destroy', this._onDestroy.bind(this));
     }
@@ -442,6 +504,7 @@ var MultiMonitorsPanel = (() => {
         this._settings.disconnect(this._showActivitiesId);
         this._settings.disconnect(this._showAppMenuId);
         this._settings.disconnect(this._showDateTimeId);
+        this._settings.disconnect(this._showTopPanelId);
 
         Main.ctrlAltTabManager.removeGroup(this);
         Main.sessionMode.disconnect(this._updatedId);
@@ -516,7 +579,25 @@ var MultiMonitorsPanel = (() => {
         else {
             let constructor = MULTI_MONITOR_PANEL_ITEM_IMPLEMENTATIONS[role];
             if (!constructor) {
-                // This icon is not implemented (this is a bug)
+                // If we don't have a specific implementation, try to use the primary panel's implementation
+                if (Main.panel.statusArea && Main.panel.statusArea[role]) {
+                    const primaryIndicator = Main.panel.statusArea[role];
+                    if (primaryIndicator && primaryIndicator.constructor) {
+                        // Try to use the same constructor as the primary panel
+                        try {
+                            indicator = new primaryIndicator.constructor(this);
+                            this.statusArea[role] = indicator;
+                            return indicator;
+                        } catch (e) {
+                            global.log(`Error creating ${role} from primary panel constructor: ${e}`);
+                            
+                            // For indicators that don't work with constructor copying,
+                            // we'll handle them via the transferIndicators mechanism instead
+                            return null;
+                        }
+                    }
+                }
+                global.log(`No implementation for role ${role} in additional panel`);
                 return null;
             }
             indicator = new constructor(this);

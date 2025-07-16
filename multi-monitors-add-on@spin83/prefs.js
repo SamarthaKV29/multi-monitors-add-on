@@ -33,6 +33,7 @@ const SHOW_PANEL_ID = 'show-panel';
 const SHOW_ACTIVITIES_ID = 'show-activities';
 const SHOW_APP_MENU_ID = 'show-app-menu';
 const SHOW_DATE_TIME_ID = 'show-date-time';
+const SHOW_TOP_PANEL_ID = 'show-top-panel';
 const THUMBNAILS_SLIDER_POSITION_ID = 'thumbnails-slider-position';
 const AVAILABLE_INDICATORS_ID = 'available-indicators';
 const TRANSFER_INDICATORS_ID = 'transfer-indicators';
@@ -43,6 +44,121 @@ const Columns = {
     MONITOR_NUMBER: 1
 };
 
+class FixedNewIndicatorDialog extends Gtk.Dialog {
+    constructor(parent) {
+        super({
+            title: _("Select indicator"),
+            transient_for: parent,
+            modal: true
+        });
+        
+        this.add_button(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL);
+        this.add_button(_("Add"), Gtk.ResponseType.OK);
+        this.set_default_response(Gtk.ResponseType.OK);
+        
+        let content = this.get_content_area();
+        content.set_margin_top(10);
+        content.set_margin_bottom(10);
+        content.set_margin_start(10);
+        content.set_margin_end(10);
+        content.set_spacing(10);
+        
+        // Create the indicator list
+        this.indicatorStore = new Gtk.ListStore();
+        this.indicatorStore.set_column_types([GObject.TYPE_STRING]);
+        
+        this.indicatorView = new Gtk.TreeView({
+            model: this.indicatorStore,
+            headers_visible: true
+        });
+        
+        let column = new Gtk.TreeViewColumn({
+            title: _("Available Indicators"),
+            expand: true
+        });
+        
+        let renderer = new Gtk.CellRendererText();
+        column.pack_start(renderer, true);
+        column.add_attribute(renderer, "text", 0);
+        
+        this.indicatorView.append_column(column);
+        this.indicatorView.get_selection().set_mode(Gtk.SelectionMode.SINGLE);
+        
+        // Fill with available indicators
+        let availableIndicators = parent._settings.get_strv(AVAILABLE_INDICATORS_ID);
+        let transfers = parent._settings.get_value(TRANSFER_INDICATORS_ID).deep_unpack();
+        
+        availableIndicators.forEach(indicator => {
+            if (!transfers.hasOwnProperty(indicator)) {
+                let iter = this.indicatorStore.append();
+                this.indicatorStore.set(iter, [0], [indicator]);
+            }
+        });
+        
+        // Make sure the first item is selected
+        let [success, iter] = this.indicatorStore.get_iter_first();
+        if (success) {
+            this.indicatorView.get_selection().select_iter(iter);
+        }
+        
+        // Add the view to a scrolled window
+        let scrolled = new Gtk.ScrolledWindow({
+            hscrollbar_policy: Gtk.PolicyType.NEVER,
+            vscrollbar_policy: Gtk.PolicyType.AUTOMATIC,
+            min_content_height: 200,
+            min_content_width: 300
+        });
+        scrolled.set_child(this.indicatorView);
+        
+        // Add monitor selector
+        let monitorBox = new Gtk.Box({
+            orientation: Gtk.Orientation.HORIZONTAL,
+            spacing: 10
+        });
+        
+        let monitorLabel = new Gtk.Label({
+            label: _("Monitor index:"),
+            halign: Gtk.Align.START,
+            hexpand: true
+        });
+        
+        // Calculate max monitor index
+        let monitorCount = parent._monitors ? 
+            Math.max(0, parent._monitors.get_n_items() - 1) : 0;
+            
+        this.monitorAdjustment = new Gtk.Adjustment({
+            lower: 0,
+            upper: monitorCount,
+            step_increment: 1,
+            value: 0
+        });
+        
+        this.monitorSpin = new Gtk.SpinButton({
+            adjustment: this.monitorAdjustment,
+            numeric: true,
+            halign: Gtk.Align.END
+        });
+        
+        monitorBox.append(monitorLabel);
+        monitorBox.append(this.monitorSpin);
+        
+        // Add everything to the dialog
+        content.append(scrolled);
+        content.append(monitorBox);
+    }
+    
+    get_selected_indicator() {
+        let [success, model, iter] = this.indicatorView.get_selection().get_selected();
+        if (success) {
+            return model.get_value(iter, 0);
+        }
+        return null;
+    }
+    
+    get_selected_monitor() {
+        return this.monitorAdjustment.get_value();
+    }
+}
 
 var MultiMonitorsPrefsWidget = GObject.registerClass(
 class MultiMonitorsPrefsWidget extends Gtk.Grid {
@@ -66,6 +182,7 @@ class MultiMonitorsPrefsWidget extends Gtk.Grid {
         this._addBooleanSwitch(_('Show Activities-Button on additional monitors.'), SHOW_ACTIVITIES_ID);
         this._addBooleanSwitch(_('Show AppMenu-Button on additional monitors.'), SHOW_APP_MENU_ID);
         this._addBooleanSwitch(_('Show DateTime-Button on additional monitors.'), SHOW_DATE_TIME_ID);
+        this._addBooleanSwitch(_('Show top panel on all monitors.'), SHOW_TOP_PANEL_ID);
         this._addComboBoxSwitch(_('Show Thumbnails-Slider on additional monitors.'), THUMBNAILS_SLIDER_POSITION_ID, {
             none: _('No'),
             right: _('On the right'),
@@ -80,16 +197,19 @@ class MultiMonitorsPrefsWidget extends Gtk.Grid {
         this._treeView = new Gtk.TreeView({ model: this._store, hexpand: true, vexpand: true });
         this._treeView.get_selection().set_mode(Gtk.SelectionMode.SINGLE);
 
-        let appColumn = new Gtk.TreeViewColumn({ expand: true, sort_column_id: Columns.INDICATOR_NAME,
-                                                 title: _("A list of indicators for transfer to additional monitors.") });
+        let appColumn = new Gtk.TreeViewColumn({ 
+            expand: true, 
+            sort_column_id: Columns.INDICATOR_NAME,
+            title: _("Indicators to transfer to additional monitors (e.g., Tilda, Dropbox, etc.)") 
+        });
 
         let nameRenderer = new Gtk.CellRendererText;
         appColumn.pack_start(nameRenderer, true);
         appColumn.add_attribute(nameRenderer, "text", Columns.INDICATOR_NAME);
 
-        nameRenderer = new Gtk.CellRendererText;
-        appColumn.pack_start(nameRenderer, true);
-        appColumn.add_attribute(nameRenderer, "text", Columns.MONITOR_NUMBER);
+        let monitorRenderer = new Gtk.CellRendererText;
+        appColumn.pack_start(monitorRenderer, true);
+        appColumn.add_attribute(monitorRenderer, "text", Columns.MONITOR_NUMBER);
         
         this._treeView.append_column(appColumn);
         this.add(this._treeView);
@@ -116,147 +236,129 @@ class MultiMonitorsPrefsWidget extends Gtk.Grid {
     }
 
     _updateIndicators() {
-    	this._store.clear();
-    	
-    	let transfers = this._settings.get_value(TRANSFER_INDICATORS_ID).deep_unpack();
-
-		for(let indicator in transfers) {
-			if(transfers.hasOwnProperty(indicator)){
-				let monitor = transfers[indicator];
-	            let iter = this._store.append();
-	            this._store.set(iter, [Columns.INDICATOR_NAME, Columns.MONITOR_NUMBER], [indicator, monitor]);
-			}
-		}
-	}
+        try {
+            global.log("Updating indicators list");
+            
+            // Clear the existing store
+            this._store.clear();
+            
+            // Get the current transfers
+            let transfers = this._settings.get_value(TRANSFER_INDICATORS_ID).deep_unpack();
+            let count = 0;
+            
+            // Add each transfer to the list
+            for(let indicator in transfers) {
+                if(transfers.hasOwnProperty(indicator)){
+                    let monitor = transfers[indicator];
+                    let iter = this._store.append();
+                    this._store.set(iter, [Columns.INDICATOR_NAME, Columns.MONITOR_NUMBER], [indicator, monitor]);
+                    count++;
+                }
+            }
+            
+            global.log(`Updated indicators list with ${count} items`);
+            
+            // Make sure the treeview is updated and visible
+            if (this._treeView) {
+                this._treeView.get_selection().unselect_all();
+                this._treeView.queue_draw();
+            }
+        } catch (e) {
+            global.log(`Error updating indicators: ${e.message}`);
+        }
+    }
     
     _addIndicator() {
-	
-    	let dialog = new Gtk.Dialog({ title: _("Select indicator"),
-            									transient_for: this.get_toplevel(), modal: true });
-    	dialog.add_button(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL);
-    	dialog.add_button(_("Add"), Gtk.ResponseType.OK);
-    	dialog.set_default_response(Gtk.ResponseType.OK);
-
-    	let grid = new Gtk.Grid({ column_spacing: 10, row_spacing: 15,
-                margin_top: 10, margin_end: 10, margin_bottom: 10, margin_start: 10 });
-    	
-    	grid.set_orientation(Gtk.Orientation.VERTICAL);
-    	
-    	dialog._store = new Gtk.ListStore();
-    	dialog._store.set_column_types([GObject.TYPE_STRING]);		
-
-    	dialog._treeView = new Gtk.TreeView({ model: dialog._store, hexpand: true, vexpand: true });
-    	dialog._treeView.get_selection().set_mode(Gtk.SelectionMode.SINGLE);
-
-        let appColumn = new Gtk.TreeViewColumn({ expand: true, sort_column_id: Columns.INDICATOR_NAME,
-                                                 title: _("Indicators on Top Panel") });
-        
-        let nameRenderer = new Gtk.CellRendererText;
-        appColumn.pack_start(nameRenderer, true);
-        appColumn.add_attribute(nameRenderer, "text", Columns.INDICATOR_NAME);        
-
-        dialog._treeView.append_column(appColumn);
-        
-        let availableIndicators = () => {
-        	let transfers = this._settings.get_value(TRANSFER_INDICATORS_ID).unpack();
-    		dialog._store.clear();
-    		this._settings.get_strv(AVAILABLE_INDICATORS_ID).forEach((indicator) => {
-    			if(!transfers.hasOwnProperty(indicator)){
-        			let iter = dialog._store.append();
-        			dialog._store.set(iter, [Columns.INDICATOR_NAME], [indicator]);
-    			}
-    		});
-        };
-        
-        let availableIndicatorsId = this._settings.connect('changed::'+AVAILABLE_INDICATORS_ID,
-        													availableIndicators);
-        let transferIndicatorsId = this._settings.connect('changed::'+TRANSFER_INDICATORS_ID,
-															availableIndicators);
-        
-        availableIndicators.apply(this);
-    	grid.attach(dialog._treeView, 0, 0, 2, 1);
-    	
-		let gHBox = new Gtk.Box({orientation: Gtk.Orientation.HORIZONTAL,
-                margin_top: 10, margin_end: 10, margin_bottom: 10, margin_start: 10,
-                spacing: 20, hexpand: true});
-		let gLabel = new Gtk.Label({label: _('Monitor index:'), halign: Gtk.Align.START});
-		gHBox.append(gLabel);
-		dialog._adjustment = new Gtk.Adjustment({lower: 0.0, upper: 0.0, step_increment:1.0});
-		let spinButton = new Gtk.SpinButton({halign: Gtk.Align.END, adjustment: dialog._adjustment, numeric: 1});
-		gHBox.append(spinButton);
-		
-		let monitorsChanged = () => {
-			let n_monitors = this._monitors.get_n_items() -1;
-			dialog._adjustment.set_upper(n_monitors)
-			dialog._adjustment.set_value(n_monitors);
-		};
-		
-		let monitorsChangedId = this._monitors.connect('items-changed', monitorsChanged);
-
-		monitorsChanged.apply(this);
-		grid.append(gHBox);
-    	
-    	dialog.get_content_area().append(grid);
-
-    	dialog.connect('response', (dialog, id) => {
-    		this._monitors.disconnect(monitorsChangedId);
-    		this._settings.disconnect(availableIndicatorsId);
-    		this._settings.disconnect(transferIndicatorsId);
-			if (id != Gtk.ResponseType.OK) {
-				dialog.destroy();
-				return;
-			}
-			
-	        let [any, model, iter] = dialog._treeView.get_selection().get_selected();
-	        if (any) {
-	        	let indicator = model.get_value(iter, Columns.INDICATOR_NAME);
-	        	
-	        	let transfers = this._settings.get_value(TRANSFER_INDICATORS_ID).deep_unpack();
-	        	if(!transfers.hasOwnProperty(indicator)){
-	        		transfers[indicator] = dialog._adjustment.get_value();
-	            	this._settings.set_value(TRANSFER_INDICATORS_ID, new GLib.Variant('a{si}', transfers));
-	        	}
-	        }
-
-			dialog.destroy();
-		});
+        try {
+            global.log("Opening indicator selection dialog");
+            
+            let dialog = new FixedNewIndicatorDialog(this.get_toplevel());
+            
+            // Force dialog to show properly
+            dialog.set_visible(true);
+            dialog.present();
+            
+            dialog.connect('response', (dialog, id) => {
+                global.log(`Dialog response: ${id}`);
+                
+                if (id == Gtk.ResponseType.OK) {
+                    let indicator = dialog.get_selected_indicator();
+                    let monitorIndex = Math.floor(dialog.get_selected_monitor()); // Ensure integer
+                    
+                    global.log(`Selected indicator: ${indicator}, monitor: ${monitorIndex}`);
+                    
+                    if (indicator) {
+                        let transfers = this._settings.get_value(TRANSFER_INDICATORS_ID).deep_unpack();
+                        if (!transfers.hasOwnProperty(indicator)) {
+                            global.log(`Adding indicator ${indicator} to transfers`);
+                            transfers[indicator] = monitorIndex;
+                            this._settings.set_value(TRANSFER_INDICATORS_ID, 
+                                new GLib.Variant('a{si}', transfers));
+                            
+                            // Force update display
+                            this._updateIndicators();
+                            
+                            global.log(`Added indicator ${indicator} to monitor ${monitorIndex}`);
+                        } else {
+                            global.log(`Indicator ${indicator} was already in transfers`);
+                        }
+                    } else {
+                        global.log("No indicator selected");
+                    }
+                }
+                
+                dialog.destroy();
+            });
+        } catch (e) {
+            global.log(`Error in _addIndicator: ${e.message}`);
+        }
     }
     
     _removeIndicator() {
-        let [any, model, iter] = this._treeView.get_selection().get_selected();
-        if (any) {
-        	let indicator = model.get_value(iter, Columns.INDICATOR_NAME);
-        	
-        	let transfers = this._settings.get_value(TRANSFER_INDICATORS_ID).deep_unpack();
-        	if(transfers.hasOwnProperty(indicator)){
-        		delete transfers[indicator];
-            	this._settings.set_value(TRANSFER_INDICATORS_ID, new GLib.Variant('a{si}', transfers));
-        	}
+        try {
+            let [any, model, iter] = this._treeView.get_selection().get_selected();
+            if (any) {
+                let indicator = model.get_value(iter, Columns.INDICATOR_NAME);
+                global.log(`Removing indicator: ${indicator}`);
+                
+                let transfers = this._settings.get_value(TRANSFER_INDICATORS_ID).deep_unpack();
+                if(transfers.hasOwnProperty(indicator)){
+                    delete transfers[indicator];
+                    this._settings.set_value(TRANSFER_INDICATORS_ID, new GLib.Variant('a{si}', transfers));
+                    global.log(`Removed ${indicator} from transfers`);
+                } else {
+                    global.log(`Warning: ${indicator} not found in transfers`);
+                }
+            } else {
+                global.log("No indicator selected for removal");
+            }
+        } catch (e) {
+            global.log(`Error in _removeIndicator: ${e.message}`);
         }
     }
 
-	_addComboBoxSwitch(label, schema_id, options) {
-		this._addSettingsComboBoxSwitch(label, this._settings, schema_id, options)
-	}
+    _addComboBoxSwitch(label, schema_id, options) {
+        this._addSettingsComboBoxSwitch(label, this._settings, schema_id, options)
+    }
 
-	_addSettingsComboBoxSwitch(label, settings, schema_id, options) {
-		let gHBox = new Gtk.Box({orientation: Gtk.Orientation.HORIZONTAL,
+    _addSettingsComboBoxSwitch(label, settings, schema_id, options) {
+        let gHBox = new Gtk.Box({orientation: Gtk.Orientation.HORIZONTAL,
                 margin_top: 10, margin_end: 10, margin_bottom: 10, margin_start: 10,
                 spacing: 20, hexpand: true});
-		let gLabel = new Gtk.Label({label: _(label), halign: Gtk.Align.START});
-		gHBox.append(gLabel);
+        let gLabel = new Gtk.Label({label: _(label), halign: Gtk.Align.START});
+        gHBox.append(gLabel);
 
-		let gCBox = new Gtk.ComboBoxText({halign: Gtk.Align.END});
-		Object.entries(options).forEach(function(entry) {
-			const [key, val] = entry;
-			gCBox.append(key, val);
-		});
-		gHBox.append(gCBox);
+        let gCBox = new Gtk.ComboBoxText({halign: Gtk.Align.END});
+        Object.entries(options).forEach(function(entry) {
+            const [key, val] = entry;
+            gCBox.append(key, val);
+        });
+        gHBox.append(gCBox);
 
-		this.add(gHBox);
+        this.add(gHBox);
 
-		settings.bind(schema_id, gCBox, 'active-id', Gio.SettingsBindFlags.DEFAULT);
-	}
+        settings.bind(schema_id, gCBox, 'active-id', Gio.SettingsBindFlags.DEFAULT);
+    }
 
     _addBooleanSwitch(label, schema_id) {
         this._addSettingsBooleanSwitch(label, this._settings, schema_id);
@@ -282,6 +384,5 @@ function init() {
 
 function buildPrefsWidget() {
     let widget = new MultiMonitorsPrefsWidget();
-
     return widget;
 }

@@ -16,9 +16,14 @@ along with this program; if not, visit https://www.gnu.org/licenses/.
 */
 
 const { Clutter, Gio } = imports.gi;
+const St = imports.gi.St;
+const Meta = imports.gi.Meta;
+const Shell = imports.gi.Shell;
+const GLib = imports.gi.GLib;
 
 const Main = imports.ui.main;
-var { ANIMATION_TIME } = imports.ui.overview;
+const PanelMenu = imports.ui.panelMenu;
+const PopupMenu = imports.ui.popupMenu;
 
 const ExtensionUtils = imports.misc.extensionUtils;
 const MultiMonitors = ExtensionUtils.getCurrentExtension();
@@ -34,6 +39,7 @@ const WORKSPACES_ONLY_ON_PRIMARY_ID = 'workspaces-only-on-primary';
 
 const SHOW_INDICATOR_ID = 'show-indicator';
 const THUMBNAILS_SLIDER_POSITION_ID = 'thumbnails-slider-position';
+const SHOW_TOP_PANEL_ID = 'show-top-panel';
 
 function copyClass (s, d) {
     // Utility to copy prototype methods from s to d, skipping symbols and constructors
@@ -59,6 +65,7 @@ class MultiMonitorsAddOn {
         Main.mmLayoutManager = null;
         this._mmMonitors = 0;
         this.syncWorkspacesActualGeometry = null;
+        this._saved_workspace_window_mappings = [];
     }
 
     _showIndicator() {
@@ -143,13 +150,87 @@ class MultiMonitorsAddOn {
         }
     }
 
+    /**
+     * Save the current window to workspace mappings to restore them later
+     */
+    saveWindowWorkspaceMappings() {
+        this._saved_workspace_window_mappings = [];
+        let workspaceManager = global.workspace_manager;
+        let numWorkspaces = workspaceManager.n_workspaces;
+        
+        for (let i = 0; i < numWorkspaces; i++) {
+            let workspace = workspaceManager.get_workspace_by_index(i);
+            let windows = workspace.list_windows();
+            
+            windows.forEach(window => {
+                if (window && window.get_id()) {
+                    this._saved_workspace_window_mappings.push({
+                        windowId: window.get_id(),
+                        workspaceIndex: i,
+                        monitor: window.get_monitor()
+                    });
+                }
+            });
+        }
+        
+        global.log(`Multi-monitors add-on saved ${this._saved_workspace_window_mappings.length} window workspace mappings`);
+    }
+
+    /**
+     * Restore window to workspace mappings to fix workspace organization issues
+     */
+    restoreWindowWorkspaceMappings() {
+        if (this._saved_workspace_window_mappings.length === 0) {
+            return;
+        }
+        
+        let workspaceManager = global.workspace_manager;
+        let display = global.display;
+        let windowActors = global.get_window_actors();
+        let restoredCount = 0;
+        
+        this._saved_workspace_window_mappings.forEach(mapping => {
+            let matchingActor = windowActors.find(actor => {
+                return actor.get_meta_window() && actor.get_meta_window().get_id() === mapping.windowId;
+            });
+            
+            if (matchingActor) {
+                let window = matchingActor.get_meta_window();
+                let currentWorkspaceIndex = window.get_workspace().index();
+                
+                if (currentWorkspaceIndex !== mapping.workspaceIndex) {
+                    let targetWorkspace = workspaceManager.get_workspace_by_index(mapping.workspaceIndex);
+                    if (targetWorkspace) {
+                        window.change_workspace(targetWorkspace);
+                        restoredCount++;
+                    }
+                }
+            }
+        });
+        
+        global.log(`Multi-monitors add-on restored ${restoredCount} window workspace mappings`);
+        this._saved_workspace_window_mappings = [];
+    }
+
     enable(version) {
+        // Save current window to workspace mappings before making any changes
+        this.saveWindowWorkspaceMappings();
+        
         this._showIndicator();
         this._showThumbnailsSlider();
         this._relayout();
+        
+        // Restore window to workspace mappings after a short delay to ensure everything is initialized
+        GLib.timeout_add(GLib.PRIORITY_DEFAULT, 1000, () => {
+            this.restoreWindowWorkspaceMappings();
+            return GLib.SOURCE_REMOVE;
+        });
     }
 
     disable() {
+        // Save workspace mappings before disabling
+        this.saveWindowWorkspaceMappings();
+        
         this._hideIndicator();
         this._hideThumbnailsSlider();
         if (Main.mmLayoutManager) {
@@ -157,6 +238,12 @@ class MultiMonitorsAddOn {
             Main.mmLayoutManager = null;
         }
         this._switchOffThumbnails();
+        
+        // Restore window to workspace mappings after a short delay
+        GLib.timeout_add(GLib.PRIORITY_DEFAULT, 500, () => {
+            this.restoreWindowWorkspaceMappings();
+            return GLib.SOURCE_REMOVE;
+        });
     }
 }
 
